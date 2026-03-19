@@ -1,11 +1,14 @@
 #![no_std]
-use defmt::println;
+use core::fmt;
+
+use defmt::{ Format, Formatter, println, write };
+use embedded_graphics::image::ImageRaw;
 use esp_hal::Async;
 use esp_hal::gpio::{ Input, InputConfig, InputPin, Level, Output, OutputConfig, OutputPin, Pull };
 use esp_hal::i2c::master::I2c;
 use esp_hal::time::{ Duration, Instant };
 use ssd1306::{ mode::BufferedGraphicsMode, Ssd1306, prelude::* };
-use libm::{ floor };
+use libm::{ round };
 
 use embedded_graphics::{
     Drawable,
@@ -17,11 +20,16 @@ use embedded_graphics::{
     text::{ Baseline, Text },
 };
 
+const RAW_POI: &[u8; 8] = &[0x08, 0x78, 0x78, 0x08, 0x08, 0x08, 0x3c, 0x7e];
+pub const POI: ImageRaw<'_, BinaryColor> = ImageRaw::<BinaryColor>::new(RAW_POI, 8);
+const DISPLAY_WIDTH: u8 = 128;
+const DISPLAY_HEIGHT: u8 = 64;
+
 pub struct Button<'d> {
     input: Input<'d>,
     last_state: bool, //true=>pressed, false=>released
     debounce: Duration,
-    last_pressed: Instant,
+    pub last_pressed: Instant,
 }
 impl<'d> Button<'d> {
     pub fn new(pin: impl InputPin + 'd, debounce: u64) -> Self {
@@ -82,11 +90,22 @@ impl Coord {
             y,
         }
     }
-    pub fn is_inbound(&self, focus: Coord, width: i32, height: i32) -> bool {
-        let (min_x, min_y) = (floor(focus.x) as i32, floor(focus.y) as i32);
-        let (x, y) = (floor(self.x) as i32, floor(self.y) as i32);
-        let is_inbound: bool = x >= min_x && x < min_x + width && y >= min_y && y < min_y + height;
+    pub fn is_inbound(&self, focus: Coord, zoom: f32) -> bool {
+        let local_x = (self.x - focus.x) * (zoom as f64) + (DISPLAY_WIDTH as f64) / 2.0;
+        let local_y = (self.y - focus.y) * (zoom as f64) + (DISPLAY_HEIGHT as f64) / 2.0;
+
+        let is_inbound: bool =
+            local_x >= 0.0 &&
+            local_x < 128.0 &&
+            local_y >= 0.0 &&
+            local_y < (DISPLAY_HEIGHT as f64);
         is_inbound
+    }
+}
+
+impl Format for Coord {
+    fn format(&self, fmt: Formatter) {
+        write!(fmt, "({}, {})", self.x, self.y)
     }
 }
 
@@ -118,20 +137,22 @@ impl Map {
             DisplaySize128x64,
             BufferedGraphicsMode<DisplaySize128x64>
         >,
-        zoom: i32
+        zoom: f32
     ) {
-        let focus = Coord::new(
-            self.focus.x - (128 as f64) / (zoom as f64),
-            self.focus.y - (64 as f64) / (zoom as f64)
-        );
         display.clear_buffer();
         for slot in self.pois {
             if let Some(poi) = slot {
                 let local_coord = Coord::new(poi.x / (zoom as f64), poi.y / (zoom as f64));
-                if poi.is_inbound(self.focus, 128 * zoom, 64 * zoom) {
-                    let local_x = floor(local_coord.x - focus.x) as i32;
-                    let local_y = floor(local_coord.y - focus.y) as i32;
-                    _ = Pixel(Point::new(local_x, local_y), BinaryColor::On).draw(display);
+                if local_coord.is_inbound(self.focus, zoom) {
+                    let local_x =
+                        (poi.x - self.focus.x) * (zoom as f64) + (DISPLAY_WIDTH as f64) / 2.0;
+                    let local_y =
+                        (poi.y - self.focus.y) * (zoom as f64) + (DISPLAY_HEIGHT as f64) / 2.0;
+                    let poi = Image::new(
+                        &POI,
+                        Point::new(round(local_x - 4.0) as i32, round(local_y - 4.0) as i32)
+                    );
+                    poi.draw(display).unwrap();
                 }
             }
         }

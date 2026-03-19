@@ -13,7 +13,7 @@ use esp_hal::{ Async, main };
 use esp_hal::time::{ Duration, Instant, Rate };
 use esp_println as _;
 use esp_hal::i2c::master::{ I2c, Config as I2cConfig };
-use ssd1306::{ mode::BufferedGraphicsMode, I2CDisplayInterface, Ssd1306, prelude::* };
+use ssd1306::{ I2CDisplayInterface, Ssd1306, prelude::* };
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -24,7 +24,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 use map_poi::utils::{
     fsm::{ StateMachine, Event }, //
-    wrappers::{ Button, Map, Coord },
+    wrappers::{ Button, Coord },
 };
 
 #[allow(
@@ -83,7 +83,7 @@ fn poll_btn(sm: &mut StateMachine, btns: &mut [Button<'_>; 5]) {
             }
         }
         if btn.is_pressed() {
-            sm.event_handler(Event::BtnContinuousPress(index as u8));
+            sm.event_handler(Event::BtnContinuousPress(index as u8, btn.last_pressed));
         }
     }
 }
