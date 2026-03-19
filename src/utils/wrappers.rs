@@ -1,5 +1,5 @@
 #![no_std]
-use core::fmt;
+use core::fmt::{ self, write };
 
 use defmt::{ Format, Formatter, println, write };
 use embedded_graphics::image::ImageRaw;
@@ -9,6 +9,7 @@ use esp_hal::i2c::master::I2c;
 use esp_hal::time::{ Duration, Instant };
 use ssd1306::{ mode::BufferedGraphicsMode, Ssd1306, prelude::* };
 use libm::{ round };
+use heapless::String;
 
 use embedded_graphics::{
     Drawable,
@@ -90,17 +91,6 @@ impl Coord {
             y,
         }
     }
-    pub fn is_inbound(&self, focus: Coord, zoom: f32) -> bool {
-        let local_x = (self.x - focus.x) * (zoom as f64) + (DISPLAY_WIDTH as f64) / 2.0;
-        let local_y = (self.y - focus.y) * (zoom as f64) + (DISPLAY_HEIGHT as f64) / 2.0;
-
-        let is_inbound: bool =
-            local_x >= 0.0 &&
-            local_x < 128.0 &&
-            local_y >= 0.0 &&
-            local_y < (DISPLAY_HEIGHT as f64);
-        is_inbound
-    }
 }
 
 impl Format for Coord {
@@ -109,20 +99,40 @@ impl Format for Coord {
     }
 }
 
+pub fn is_inbound(local_x: f64, local_y: f64) -> bool {
+    let is_inbound: bool =
+        local_x >= 0.0 &&
+        local_x < (DISPLAY_WIDTH as f64) &&
+        local_y >= 0.0 &&
+        local_y < (DISPLAY_HEIGHT as f64);
+    is_inbound
+}
+
 pub struct Map {
-    pois: [Option<Coord>; 10],
+    pub pois: [Option<Coord>; 10],
+    pub crumbs: [Option<Coord>; 100],
     pub focus: Coord,
 }
 impl Map {
     pub fn new() -> Self {
         Self {
             pois: [None; 10],
+            crumbs: [None; 100],
             focus: Coord::new(0.0, 0.0),
         }
     }
 
     pub fn add_poi(&mut self, pos: Coord) {
         for slot in self.pois.iter_mut() {
+            if slot.is_none() {
+                *slot = Some(Coord::new(pos.x, pos.y));
+                break;
+            }
+        }
+    }
+
+    pub fn add_crumb(&mut self, pos: Coord) {
+        for slot in self.crumbs.iter_mut() {
             if slot.is_none() {
                 *slot = Some(Coord::new(pos.x, pos.y));
                 break;
@@ -140,19 +150,32 @@ impl Map {
         zoom: f32
     ) {
         display.clear_buffer();
+        //POI
         for slot in self.pois {
             if let Some(poi) = slot {
-                let local_coord = Coord::new(poi.x / (zoom as f64), poi.y / (zoom as f64));
-                if local_coord.is_inbound(self.focus, zoom) {
-                    let local_x =
-                        (poi.x - self.focus.x) * (zoom as f64) + (DISPLAY_WIDTH as f64) / 2.0;
-                    let local_y =
-                        (poi.y - self.focus.y) * (zoom as f64) + (DISPLAY_HEIGHT as f64) / 2.0;
+                let local_x = (poi.x - self.focus.x) * (zoom as f64) + (DISPLAY_WIDTH as f64) / 2.0;
+                let local_y =
+                    (poi.y - self.focus.y) * (zoom as f64) + (DISPLAY_HEIGHT as f64) / 2.0;
+                if is_inbound(local_x, local_y) {
                     let poi = Image::new(
                         &POI,
                         Point::new(round(local_x - 4.0) as i32, round(local_y - 4.0) as i32)
                     );
                     poi.draw(display).unwrap();
+                }
+            }
+        }
+        //CRUMB
+        for slot in self.crumbs {
+            if let Some(crumb) = slot {
+                let local_x =
+                    (crumb.x - self.focus.x) * (zoom as f64) + (DISPLAY_WIDTH as f64) / 2.0;
+                let local_y =
+                    (crumb.y - self.focus.y) * (zoom as f64) + (DISPLAY_HEIGHT as f64) / 2.0;
+                if is_inbound(local_x, local_y) {
+                    _ = Pixel(Point::new(local_x as i32, local_y as i32), BinaryColor::On).draw(
+                        display
+                    );
                 }
             }
         }

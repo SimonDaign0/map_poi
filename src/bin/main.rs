@@ -58,14 +58,20 @@ fn main() -> ! {
         Button::new(_peripherals.GPIO5, 35),
         Button::new(_peripherals.GPIO6, 35),
         Button::new(_peripherals.GPIO7, 35),
-    ]; //35ms debounce];
+    ]; //35ms debounce;
 
     let mut sm = StateMachine::new();
     sm.add_poi(Coord::new(12.0, 12.0));
-    sm.add_poi(Coord::new(24.0, 24.0));
+    sm.add_crumb(Coord::new(18.0, 18.0));
+    sm.add_crumb(Coord::new(24.0, 24.0));
+    sm.add_crumb(Coord::new(30.0, 30.0));
+    sm.add_poi(Coord::new(36.0, 36.0));
+
+    sm.add_poi(Coord::new(200.0, 400.0));
+    sm.add_poi(Coord::new(200.0, 200.0));
     loop {
-        sm.render_map(&mut display);
         poll_btn(&mut sm, &mut btns);
+        sm.render_map(&mut display);
         blocking_delay(10);
     }
 }
@@ -80,6 +86,8 @@ fn poll_btn(sm: &mut StateMachine, btns: &mut [Button<'_>; 5]) {
         if btn.is_state_changed() {
             if btn.is_pressed() {
                 sm.event_handler(Event::BtnPressed(index as u8));
+            } else {
+                sm.event_handler(Event::BtnReleased(index as u8));
             }
         }
         if btn.is_pressed() {
